@@ -121,8 +121,9 @@
                     </div>
                 </div>
 
-                <div class="mt-2">
-                    <button id="btn-generate" class="btn-secondary w-full text-sm">Generate Table</button>
+                <div class="mt-2 flex gap-2">
+                    <button id="btn-generate" class="btn-secondary flex-1 text-sm">Generate Table</button>
+                    <button id="btn-clear" class="btn-secondary text-sm px-4" style="color: #EF4444; border-color: #EF4444;">Clear</button>
                 </div>
 
                 <div id="table-container" class="hidden mt-4 overflow-x-auto">
@@ -213,6 +214,7 @@
         const btnPrevStep = document.getElementById('btn-prev-step');
         const btnNextStep = document.getElementById('btn-next-step');
         const stepIndicator = document.getElementById('step-indicator');
+        const btnClear = document.getElementById('btn-clear');
 
         function showError(msg) {
             errorBanner.textContent = msg;
@@ -222,6 +224,104 @@
             errorBanner.classList.add('hidden');
             errorBanner.textContent = "";
         }
+
+        // --- localStorage persistence ---
+        const STORAGE_KEY = 'automata_sim_state';
+
+        function saveState() {
+            const transitions = {};
+            const symbols = [...parsedAlphabet, EPSILON];
+            parsedStates.forEach(state => {
+                transitions[state] = {};
+                symbols.forEach(sym => {
+                    const input = document.querySelector(`input[data-state="${state}"][data-symbol="${sym}"]`);
+                    if (input) transitions[state][sym] = input.value;
+                });
+            });
+            const data = {
+                states: elStates.value,
+                alphabet: elAlphabet.value,
+                start: elStart.value,
+                finals: elFinal.value,
+                parsedStates: parsedStates,
+                parsedAlphabet: parsedAlphabet,
+                transitions: transitions
+            };
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+        }
+
+        function restoreState() {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) return;
+            try {
+                const data = JSON.parse(raw);
+                elStates.value = data.states || '';
+                elAlphabet.value = data.alphabet || '';
+                elFinal.value = data.finals || '';
+
+                // Restore parsed arrays
+                parsedStates = data.parsedStates || [];
+                parsedAlphabet = data.parsedAlphabet || [];
+
+                // Rebuild start state dropdown
+                const states = data.states.split(',').map(s => s.trim()).filter(s => s);
+                elStart.innerHTML = '';
+                states.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    elStart.appendChild(opt);
+                });
+                if (data.start) elStart.value = data.start;
+
+                // Rebuild transition table if we have data
+                if (parsedStates.length > 0 && parsedAlphabet.length > 0) {
+                    btnGenerate.click();
+                    // Fill in transition values after table is generated
+                    if (data.transitions) {
+                        const symbols = [...parsedAlphabet, EPSILON];
+                        parsedStates.forEach(state => {
+                            symbols.forEach(sym => {
+                                const input = document.querySelector(`input[data-state="${state}"][data-symbol="${sym}"]`);
+                                if (input && data.transitions[state] && data.transitions[state][sym] !== undefined) {
+                                    input.value = data.transitions[state][sym];
+                                }
+                            });
+                        });
+                    }
+                    // Re-select start state after table rebuild
+                    if (data.start) elStart.value = data.start;
+                }
+            } catch (e) { /* ignore corrupt data */ }
+        }
+
+        function clearState() {
+            localStorage.removeItem(STORAGE_KEY);
+            elStates.value = '';
+            elAlphabet.value = '';
+            elStart.innerHTML = '';
+            elFinal.value = '';
+            parsedStates = [];
+            parsedAlphabet = [];
+            currentAutomataType = null;
+            traceData = [];
+            currentStep = 0;
+            tableContainer.classList.add('hidden');
+            tableHeader.innerHTML = '';
+            tableBody.innerHTML = '';
+            classResult.innerHTML = '<span class="text-[#475569]">Run analysis to see results.</span>';
+            simPanel.classList.add('hidden');
+            diagramContainer.classList.add('hidden');
+            simResult.classList.add('hidden');
+            traceContainer.classList.add('hidden');
+            hideError();
+            if (cy) { cy.destroy(); cy = null; }
+        }
+
+        btnClear.addEventListener('click', clearState);
+
+        // Restore on page load
+        restoreState();
 
         // Update Start State Dropdown when States input loses focus
         elStates.addEventListener('blur', () => {
@@ -281,6 +381,7 @@
 
         btnAnalyze.addEventListener('click', async () => {
             hideError();
+            saveState();
             const startState = elStart.value;
             const finalStates = elFinal.value.split(',').map(s => s.trim()).filter(s => s);
             const transitions = getTransitionsFromTable();
@@ -449,38 +550,6 @@
 
             if (cy) cy.destroy();
 
-            // Check if dagre layout is available
-            let layoutConfig;
-            const dagreAvailable = cytoscape.prototype.hasOwnProperty && 
-                typeof cytoscapeDagre !== 'undefined';
-            
-            if (dagreAvailable) {
-                layoutConfig = {
-                    name: 'dagre',
-                    rankDir: 'LR',
-                    nodeSep: 60,
-                    rankSep: 100,
-                    fit: true,
-                    padding: 30
-                };
-            } else {
-                // Fallback: manually position nodes in a horizontal line
-                const containerWidth = document.getElementById('cy').offsetWidth;
-                const containerHeight = document.getElementById('cy').offsetHeight;
-                const totalNodes = elements.filter(e => e.data.id && !e.data.source && e.data.id !== 'dummy_start').length;
-                const spacing = containerWidth / (totalNodes + 2);
-                let idx = 0;
-                elements.forEach(el => {
-                    if (el.data.id === 'dummy_start') {
-                        el.position = { x: spacing * 0.5, y: containerHeight / 2 };
-                    } else if (!el.data.source) {
-                        idx++;
-                        el.position = { x: spacing * (idx + 0.5), y: containerHeight / 2 };
-                    }
-                });
-                layoutConfig = { name: 'preset', fit: true, padding: 30 };
-            }
-
             cy = cytoscape({
                 container: document.getElementById('cy'),
                 elements: elements,
@@ -488,6 +557,7 @@
                 userPanningEnabled: false,
                 boxSelectionEnabled: false,
                 autoungrabify: true,
+                layout: { name: 'preset' },  // initialize with no auto-layout
                 style: [
                     {
                         selector: 'node.state',
@@ -550,9 +620,37 @@
                             'color': '#ffffff'
                         }
                     }
-                ],
-                layout: layoutConfig
+                ]
             });
+
+            // Try dagre layout first, fall back to breadthfirst if unavailable
+            try {
+                cy.layout({
+                    name: 'dagre',
+                    rankDir: 'LR',
+                    nodeSep: 60,
+                    rankSep: 100,
+                    fit: true,
+                    padding: 30
+                }).run();
+            } catch (e) {
+                cy.layout({
+                    name: 'breadthfirst',
+                    directed: true,
+                    spacingFactor: 1.5,
+                    fit: true,
+                    padding: 30
+                }).run();
+            }
+
+            // Reposition dummy start node to the LEFT of the start state
+            const startNode = cy.$(`#${start}`);
+            const dummyNode = cy.$('#dummy_start');
+            if (startNode.length && dummyNode.length) {
+                const startPos = startNode.position();
+                dummyNode.position({ x: startPos.x - 60, y: startPos.y });
+            }
+            cy.fit(undefined, 30);
         }
 
         function highlightDiagram(activeStates) {
