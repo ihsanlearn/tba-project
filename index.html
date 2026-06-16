@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Automata Simulator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dagre/0.8.5/dagre.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape-dagre/2.5.0/cytoscape-dagre.min.js"></script>
+    <script>
+        // Explicitly register the dagre layout extension with Cytoscape
+        if (typeof cytoscapeDagre !== 'undefined' && typeof cytoscape !== 'undefined') {
+            cytoscapeDagre(cytoscape);
+        }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #F8FAFC;
+            color: #0F172A;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .surface {
+            background-color: #FFFFFF;
+            border: 1px solid #E2E8F0;
+        }
+        .input-field {
+            background-color: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            color: #0F172A;
+            padding: 8px 12px;
+            border-radius: 6px;
+            width: 100%;
+        }
+        .input-field:focus {
+            outline: none;
+            border-color: #6366F1;
+        }
+        .btn-primary {
+            background-color: #6366F1;
+            color: white;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: opacity 0.2s;
+        }
+        .btn-primary:hover {
+            opacity: 0.9;
+        }
+        .btn-secondary {
+            background-color: transparent;
+            border: 1px solid #E2E8F0;
+            color: #0F172A;
+            padding: 8px 16px;
+            border-radius: 6px;
+            transition: opacity 0.2s;
+        }
+        .btn-secondary:hover {
+            background-color: #E2E8F0;
+        }
+        .table-cell {
+            border: 1px solid #E2E8F0;
+            padding: 0;
+        }
+        .table-input {
+            width: 100%;
+            height: 100%;
+            background-color: transparent;
+            border: none;
+            color: #0F172A;
+            padding: 8px;
+            border-radius: 0;
+        }
+        .table-input:focus {
+            outline: none;
+            background-color: #F1F5F9;
+        }
+        #cy {
+            width: 100%;
+            height: 300px;
+            background-color: #F8FAFC;
+            border: 1px solid #E2E8F0;
+            border-radius: 8px;
+        }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-[1100px] mx-auto flex flex-col gap-6">
+        <header>
+            <h1 class="text-2xl font-semibold mb-2">Automata Simulator</h1>
+            <p class="text-[#475569] text-sm">Design, validate, and simulate DFA, NFA, and ε-NFA</p>
+        </header>
+
+        <div id="error-banner" class="hidden bg-[#EF4444]/20 border border-[#EF4444] text-[#EF4444] p-4 rounded-md mb-4 text-sm whitespace-pre-wrap"></div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <!-- LEFT PANEL -->
+            <div class="surface rounded-lg p-5 flex flex-col gap-4">
+                <h2 class="text-lg font-medium border-b border-[#E2E8F0] pb-2">Definition</h2>
+                
+                <div class="flex flex-col gap-3">
+                    <div>
+                        <label class="block text-sm text-[#475569] mb-1">States (comma-separated)</label>
+                        <input type="text" id="input-states" class="input-field mono" placeholder="q0, q1, q2">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-[#475569] mb-1">Alphabet (comma-separated)</label>
+                        <input type="text" id="input-alphabet" class="input-field mono" placeholder="a, b">
+                    </div>
+                    <div>
+                        <label class="block text-sm text-[#475569] mb-1">Start State</label>
+                        <select id="input-start" class="input-field mono"></select>
+                    </div>
+                    <div>
+                        <label class="block text-sm text-[#475569] mb-1">Final States (multi-select / comma-separated)</label>
+                        <input type="text" id="input-final" class="input-field mono" placeholder="q2">
+                    </div>
+                </div>
+
+                <div class="mt-2">
+                    <button id="btn-generate" class="btn-secondary w-full text-sm">Generate Table</button>
+                </div>
+
+                <div id="table-container" class="hidden mt-4 overflow-x-auto">
+                    <label class="block text-sm text-[#475569] mb-2">Transitions</label>
+                    <table class="w-full text-left text-sm" style="border-collapse: collapse;">
+                        <thead>
+                            <tr id="table-header" class="bg-[#FFFFFF]"></tr>
+                        </thead>
+                        <tbody id="table-body"></tbody>
+                    </table>
+                    <button id="btn-analyze" class="btn-primary w-full mt-4 text-sm">Analyze Automaton</button>
+                </div>
+            </div>
+
+            <!-- RIGHT PANEL -->
+            <div class="flex flex-col gap-6">
+                <!-- CLASSIFICATION -->
+                <div class="surface rounded-lg p-5">
+                    <h2 class="text-lg font-medium border-b border-[#E2E8F0] pb-2 mb-4">Classification</h2>
+                    <div id="classification-result" class="text-sm text-[#475569]">
+                        Run analysis to see results.
+                    </div>
+                </div>
+
+                <!-- SIMULATION -->
+                <div id="simulation-panel" class="surface rounded-lg p-5 hidden flex-col gap-4">
+                    <h2 class="text-lg font-medium border-b border-[#E2E8F0] pb-2">String Simulation</h2>
+                    <div>
+                        <label class="block text-sm text-[#475569] mb-1">Input String</label>
+                        <div class="flex gap-2">
+                            <input type="text" id="input-string" class="input-field mono flex-1" placeholder="aab">
+                            <button id="btn-simulate" class="btn-primary text-sm">Simulate</button>
+                        </div>
+                    </div>
+                    
+                    <div id="simulation-result" class="hidden mt-2 p-3 rounded bg-[#F8FAFC] border border-[#E2E8F0]"></div>
+                    
+                    <div id="trace-container" class="hidden flex-col gap-2">
+                        <div class="flex justify-between items-center text-sm text-[#475569]">
+                            <span>Trace Log</span>
+                            <div class="flex gap-2">
+                                <button id="btn-prev-step" class="btn-secondary text-xs px-2 py-1" disabled>← Prev</button>
+                                <span id="step-indicator" class="text-xs self-center">Step 0/0</span>
+                                <button id="btn-next-step" class="btn-secondary text-xs px-2 py-1" disabled>Next →</button>
+                            </div>
+                        </div>
+                        <div id="trace-log" class="mono text-xs bg-[#F8FAFC] p-3 rounded border border-[#E2E8F0] overflow-y-auto max-h-40 flex flex-col gap-1"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- DIAGRAM -->
+        <div id="diagram-container" class="surface rounded-lg p-5 hidden">
+            <h2 class="text-lg font-medium border-b border-[#E2E8F0] pb-2 mb-4">State Diagram</h2>
+            <div id="cy"></div>
+        </div>
+    </div>
+
+    <script>
+        const EPSILON = "ε";
+        let parsedStates = [];
+        let parsedAlphabet = [];
+        let currentAutomataType = null;
+        let cy = null;
+        let traceData = [];
+        let currentStep = 0;
+
+        const elStates = document.getElementById('input-states');
+        const elAlphabet = document.getElementById('input-alphabet');
+        const elStart = document.getElementById('input-start');
+        const elFinal = document.getElementById('input-final');
+        const btnGenerate = document.getElementById('btn-generate');
+        const tableContainer = document.getElementById('table-container');
+        const tableHeader = document.getElementById('table-header');
+        const tableBody = document.getElementById('table-body');
+        const btnAnalyze = document.getElementById('btn-analyze');
+        const errorBanner = document.getElementById('error-banner');
+        const classResult = document.getElementById('classification-result');
+        const diagramContainer = document.getElementById('diagram-container');
+        
+        const simPanel = document.getElementById('simulation-panel');
+        const btnSimulate = document.getElementById('btn-simulate');
+        const inputString = document.getElementById('input-string');
+        const simResult = document.getElementById('simulation-result');
+        const traceContainer = document.getElementById('trace-container');
+        const traceLog = document.getElementById('trace-log');
+        const btnPrevStep = document.getElementById('btn-prev-step');
+        const btnNextStep = document.getElementById('btn-next-step');
+        const stepIndicator = document.getElementById('step-indicator');
+
+        function showError(msg) {
+            errorBanner.textContent = msg;
+            errorBanner.classList.remove('hidden');
+        }
+        function hideError() {
+            errorBanner.classList.add('hidden');
+            errorBanner.textContent = "";
+        }
+
+        // Update Start State Dropdown when States input loses focus
+        elStates.addEventListener('blur', () => {
+            const val = elStates.value;
+            const states = val.split(',').map(s => s.trim()).filter(s => s);
+            elStart.innerHTML = '';
+            states.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s;
+                opt.textContent = s;
+                elStart.appendChild(opt);
+            });
+        });
+
+        btnGenerate.addEventListener('click', () => {
+            hideError();
+            parsedStates = elStates.value.split(',').map(s => s.trim()).filter(s => s);
+            parsedAlphabet = elAlphabet.value.split(',').map(s => s.trim()).filter(s => s);
+            
+            if (parsedStates.length === 0 || parsedAlphabet.length === 0) {
+                showError("States and Alphabet must not be empty.");
+                return;
+            }
+
+            tableHeader.innerHTML = `<th class="table-cell p-2 font-medium text-[#475569]">State</th>`;
+            const symbols = [...parsedAlphabet, EPSILON];
+            symbols.forEach(sym => {
+                tableHeader.innerHTML += `<th class="table-cell p-2 font-medium text-[#475569] mono text-center">${sym}</th>`;
+            });
+
+            tableBody.innerHTML = '';
+            parsedStates.forEach(state => {
+                let tr = document.createElement('tr');
+                tr.innerHTML = `<td class="table-cell p-2 mono font-medium bg-[#FFFFFF] text-center">${state}</td>`;
+                symbols.forEach(sym => {
+                    tr.innerHTML += `<td class="table-cell"><input type="text" class="table-input mono" data-state="${state}" data-symbol="${sym}"></td>`;
+                });
+                tableBody.appendChild(tr);
+            });
+
+            tableContainer.classList.remove('hidden');
+        });
+
+        function getTransitionsFromTable() {
+            const transitions = {};
+            parsedStates.forEach(state => {
+                transitions[state] = {};
+                const symbols = [...parsedAlphabet, EPSILON];
+                symbols.forEach(sym => {
+                    const input = document.querySelector(`input[data-state="${state}"][data-symbol="${sym}"]`);
+                    const targets = input.value.split(',').map(s => s.trim()).filter(s => s);
+                    transitions[state][sym] = targets;
+                });
+            });
+            return transitions;
+        }
+
+        btnAnalyze.addEventListener('click', async () => {
+            hideError();
+            const startState = elStart.value;
+            const finalStates = elFinal.value.split(',').map(s => s.trim()).filter(s => s);
+            const transitions = getTransitionsFromTable();
+
+            const payload = {
+                states: parsedStates,
+                alphabet: parsedAlphabet,
+                start_state: startState,
+                final_states: finalStates,
+                transitions: transitions
+            };
+
+            try {
+                const res = await fetch('/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (data.validation_errors && data.validation_errors.length > 0) {
+                    showError(data.validation_errors.join('\n'));
+                    classResult.innerHTML = '<span class="text-[#EF4444]">Validation Failed</span>';
+                    simPanel.classList.add('hidden');
+                    diagramContainer.classList.add('hidden');
+                    return;
+                }
+
+                currentAutomataType = data.type;
+                classResult.innerHTML = `
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="px-2 py-1 rounded bg-[#6366F1]/20 text-[#6366F1] font-bold text-xs uppercase">${data.type}</span>
+                    </div>
+                    <p class="text-[#0F172A]">${data.reason}</p>
+                `;
+
+                simPanel.classList.remove('hidden');
+                simResult.classList.add('hidden');
+                traceContainer.classList.add('hidden');
+                diagramContainer.classList.remove('hidden');
+                
+                // Initialize cytoscape AFTER container is visible so it can center correctly
+                renderDiagram(parsedStates, startState, finalStates, data.cleaned_transitions);
+                
+            } catch (err) {
+                showError("Failed to communicate with server.");
+            }
+        });
+
+        btnSimulate.addEventListener('click', async () => {
+            hideError();
+            const startState = elStart.value;
+            const finalStates = elFinal.value.split(',').map(s => s.trim()).filter(s => s);
+            const transitions = getTransitionsFromTable();
+            const inputStr = inputString.value.trim();
+
+            const payload = {
+                states: parsedStates,
+                alphabet: parsedAlphabet,
+                start_state: startState,
+                final_states: finalStates,
+                transitions: transitions,
+                automata_type: currentAutomataType,
+                input_string: inputStr
+            };
+
+            try {
+                const res = await fetch('/simulate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                
+                simResult.classList.remove('hidden');
+                simResult.innerHTML = `
+                    <div class="font-bold mb-1 ${data.accepted ? 'text-[#22C55E]' : 'text-[#EF4444]'}">
+                        RESULT: ${data.accepted ? 'ACCEPTED ✅' : 'REJECTED ❌'}
+                    </div>
+                    <div class="text-sm text-[#0F172A]">${data.message}</div>
+                `;
+
+                traceData = data.trace || [];
+                currentStep = 0;
+                
+                if (traceData.length > 0) {
+                    traceContainer.classList.remove('hidden');
+                    updateTraceUI();
+                }
+
+            } catch (err) {
+                showError("Simulation failed.");
+            }
+        });
+
+        function updateTraceUI() {
+            traceLog.innerHTML = '';
+            traceData.forEach((t, i) => {
+                const isCurrent = i === currentStep;
+                const div = document.createElement('div');
+                div.className = `p-1 rounded ${isCurrent ? 'bg-[#6366F1]/20 border border-[#6366F1]/50' : ''}`;
+                const statesStr = t.current_states.join(', ');
+                div.textContent = `[Step ${t.step}] Active: {${statesStr}} ${t.symbol ? '—read→ ('+t.symbol+')' : '(end)'}`;
+                traceLog.appendChild(div);
+            });
+            
+            stepIndicator.textContent = `Step ${currentStep + 1}/${traceData.length}`;
+            btnPrevStep.disabled = currentStep === 0;
+            btnNextStep.disabled = currentStep === traceData.length - 1;
+            
+            highlightDiagram(traceData[currentStep].current_states);
+        }
+
+        btnPrevStep.addEventListener('click', () => {
+            if (currentStep > 0) {
+                currentStep--;
+                updateTraceUI();
+            }
+        });
+
+        btnNextStep.addEventListener('click', () => {
+            if (currentStep < traceData.length - 1) {
+                currentStep++;
+                updateTraceUI();
+            }
+        });
+
+        function renderDiagram(states, start, finals, transitions) {
+            const elements = [];
+            
+            // Add dummy start node and edge
+            elements.push({ data: { id: 'dummy_start' }, classes: 'dummy' });
+            elements.push({ data: { id: 'e_dummy_start', source: 'dummy_start', target: start } });
+
+            // Add states
+            states.forEach(s => {
+                let classes = 'state';
+                if (finals.includes(s)) classes += ' final';
+                elements.push({ data: { id: s, label: s }, classes: classes });
+            });
+
+            // Group transitions by source->target
+            const edgesMap = {};
+            for (const source in transitions) {
+                for (const symbol in transitions[source]) {
+                    const targets = transitions[source][symbol];
+                    targets.forEach(target => {
+                        const key = `${source}->${target}`;
+                        if (!edgesMap[key]) edgesMap[key] = { source, target, symbols: [] };
+                        edgesMap[key].symbols.push(symbol);
+                    });
+                }
+            }
+
+            for (const key in edgesMap) {
+                const e = edgesMap[key];
+                elements.push({
+                    data: {
+                        id: `e_${e.source}_${e.target}`,
+                        source: e.source,
+                        target: e.target,
+                        label: e.symbols.join(', ')
+                    }
+                });
+            }
+
+            if (cy) cy.destroy();
+
+            // Check if dagre layout is available
+            let layoutConfig;
+            const dagreAvailable = cytoscape.prototype.hasOwnProperty && 
+                typeof cytoscapeDagre !== 'undefined';
+            
+            if (dagreAvailable) {
+                layoutConfig = {
+                    name: 'dagre',
+                    rankDir: 'LR',
+                    nodeSep: 60,
+                    rankSep: 100,
+                    fit: true,
+                    padding: 30
+                };
+            } else {
+                // Fallback: manually position nodes in a horizontal line
+                const containerWidth = document.getElementById('cy').offsetWidth;
+                const containerHeight = document.getElementById('cy').offsetHeight;
+                const totalNodes = elements.filter(e => e.data.id && !e.data.source && e.data.id !== 'dummy_start').length;
+                const spacing = containerWidth / (totalNodes + 2);
+                let idx = 0;
+                elements.forEach(el => {
+                    if (el.data.id === 'dummy_start') {
+                        el.position = { x: spacing * 0.5, y: containerHeight / 2 };
+                    } else if (!el.data.source) {
+                        idx++;
+                        el.position = { x: spacing * (idx + 0.5), y: containerHeight / 2 };
+                    }
+                });
+                layoutConfig = { name: 'preset', fit: true, padding: 30 };
+            }
+
+            cy = cytoscape({
+                container: document.getElementById('cy'),
+                elements: elements,
+                userZoomingEnabled: false,
+                userPanningEnabled: false,
+                boxSelectionEnabled: false,
+                autoungrabify: true,
+                style: [
+                    {
+                        selector: 'node.state',
+                        style: {
+                            'background-color': '#E2E8F0',
+                            'border-width': 2,
+                            'border-color': '#6366F1',
+                            'label': 'data(label)',
+                            'color': '#0F172A',
+                            'text-valign': 'center',
+                            'text-halign': 'center',
+                            'font-family': 'JetBrains Mono, monospace',
+                            'font-size': '12px'
+                        }
+                    },
+                    {
+                        selector: 'node.final',
+                        style: {
+                            'border-width': 4,
+                            'border-style': 'double'
+                        }
+                    },
+                    {
+                        selector: 'node.dummy',
+                        style: {
+                            'width': 1,
+                            'height': 1,
+                            'background-color': 'transparent',
+                            'label': ''
+                        }
+                    },
+                    {
+                        selector: 'edge',
+                        style: {
+                            'width': 2,
+                            'line-color': '#475569',
+                            'target-arrow-color': '#475569',
+                            'target-arrow-shape': 'triangle',
+                            'curve-style': 'bezier',
+                            'label': 'data(label)',
+                            'color': '#0F172A',
+                            'text-background-color': '#F8FAFC',
+                            'text-background-opacity': 1,
+                            'text-background-padding': '2px',
+                            'font-family': 'JetBrains Mono, monospace',
+                            'font-size': '10px',
+                            'edge-text-rotation': 'autorotate'
+                        }
+                    },
+                    {
+                        selector: 'edge[source = target]',
+                        style: {
+                            'curve-style': 'loop'
+                        }
+                    },
+                    {
+                        selector: 'node.highlight',
+                        style: {
+                            'background-color': '#6366F1',
+                            'color': '#ffffff'
+                        }
+                    }
+                ],
+                layout: layoutConfig
+            });
+        }
+
+        function highlightDiagram(activeStates) {
+            if (!cy) return;
+            cy.elements().removeClass('highlight');
+            activeStates.forEach(s => {
+                cy.$(`#${s}`).addClass('highlight');
+            });
+        }
+    </script>
+</body>
+</html>
